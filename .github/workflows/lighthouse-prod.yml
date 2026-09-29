@@ -1,0 +1,35 @@
+name: Lighthouse mot produksjon
+
+# Nattlig måling av borresendigital.no. CI i hovedrepoet måler en lokal build før
+# deploy; denne fanger det CI ikke ser: CDN, tredjepartsskript, innhold fra
+# CMS-et og regresjoner over tid. Feiler den, varsler GitHub på e-post.
+# Terskelen for ytelse er 90 (ikke 95 som i CI) fordi målinger over nett
+# svinger mer. Tilgjengelighet skal fortsatt være 100.
+# Ligger i et offentlig repo fordi Actions er gratis her.
+
+on:
+  schedule:
+    - cron: "45 3 * * *" # 05:45 norsk sommertid
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lighthouse-prod
+  cancel-in-progress: true
+
+jobs:
+  lighthouse:
+    name: Lighthouse (prod)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Mål produksjon
+        run: npx --yes @lhci/cli@0.15.x autorun --config=./lighthouserc.prod.json

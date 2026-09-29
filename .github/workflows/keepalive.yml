@@ -1,0 +1,28 @@
+name: Keepalive
+
+# GitHub slår av planlagte workflows i offentlige repoer etter 60 dager uten
+# aktivitet. Denne jobben slår dem på igjen hver måned via API-et, uten å
+# lage commits.
+
+on:
+  schedule:
+    - cron: "0 5 1 * *" # den 1. hver måned
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    name: Hold planlagte workflows i live
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Slå på workflowene
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in vakthund.yml lighthouse-prod.yml keepalive.yml; do
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$wf/enable"
+            echo "ok: $wf"
+          done

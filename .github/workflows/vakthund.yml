@@ -1,0 +1,105 @@
+name: Vakthund
+
+# Vakthunden for vedlikeholdsboten på borresendigital.no. Boten kjører i
+# Cloudflare-workeren med Cron Trigger; stopper cron, kommer det ingen
+# varsler, og alt ser grønt ut. Denne jobben står utenfor workeren og feiler
+# hvis pulsen er for gammel, og GitHub sender e-post ved feil. Den henter også
+# forsiden og robots.txt gjennom Cloudflare-kanten, og sjekker at egne
+# viderekoblinger (http og uten www) går permanent til https://www — det kan
+# ikke workeren sjekke selv, fordi den ikke når sitt eget domene gjennom kanten.
+#
+# Ligger i et offentlig repo fordi Actions er gratis her.
+# Hvert 30. minutt; GitHub kan forsinke planlagte kjøringer i travle perioder.
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vakthund
+  cancel-in-progress: true
+
+env:
+  SITE: https://www.borresendigital.no
+  CANONICAL_HOST: www.borresendigital.no
+
+jobs:
+  vakthund:
+    name: Puls, sider og viderekoblinger
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Puls fra cron-jobbene
+        run: |
+          # To forsøk med ett minutts mellomrom, så et enkelt blipp ikke gir alarm
+          for i in 1 2; do
+            if body=$(curl -sS -f --max-time 20 "$SITE/api/drift/puls"); then
+              echo "$body"
+              exit 0
+            fi
+            echo "forsøk $i: pulsen svarte ikke OK"
+            sleep 60
+          done
+          curl -sS --max-time 20 "$SITE/api/drift/puls" || true
+          echo
+          echo "::error::Vedlikeholdsboten har stoppet: minst én cron-jobb har ikke kjørt på over 15 minutter."
+          exit 1
+
+      # Workerens egen oppetidssjekk går via self-bindingen, forbi kanten.
+      # Her hentes sidene slik besøkende får dem, så feil i WAF, DNS,
+      # sertifikat eller ruter også fanges (BetterStack er reserve).
+      - name: Egne sider gjennom kanten
+        if: ${{ !cancelled() }}
+        run: |
+          fail=0
+          check() {
+            local path="$1" expect="$2"
+            for i in 1 2; do
+              if body=$(curl -sS -f --max-time 20 -A "borresen-digital-vakthund" "$SITE$path"); then
+                if grep -qF "$expect" <<<"$body"; then
+                  echo "ok: $path"
+                  return 0
+                fi
+                echo "forsøk $i: $path mangler «$expect»"
+              else
+                echo "forsøk $i: $path svarte ikke OK"
+              fi
+              [ "$i" = 1 ] && sleep 60
+            done
+            echo "::error::$path er nede eller mangler «$expect» sett utenfra."
+            return 1
+          }
+          check /nb "Børresen Digital" || fail=1
+          check /robots.txt "Content-signal" || fail=1
+          exit $fail
+
+      - name: Egne viderekoblinger
+        if: ${{ !cancelled() }}
+        run: |
+          fail=0
+          for start in "http://borresendigital.no/" "http://www.borresendigital.no/" "https://borresendigital.no/"; do
+            url="$start"
+            chain="$start"
+            ok=0
+            for hop in 1 2 3 4 5; do
+              # Uten read: read gir feilkode ved manglende linjeskift, og bash -e stopper
+              out=$(curl -sS -o /dev/null --max-time 20 -w '%{http_code} %{redirect_url}' "$url" || true)
+              code=${out%% *}
+              next=${out#* }
+              next=${next%$'\r'}
+              case "$code" in
+                301|308) ;;
+                302|307) echo "::error::$start bruker midlertidig viderekobling ($code) i $chain"; fail=1; break ;;
+                *) echo "::error::$start stopper med $code i $chain"; fail=1; break ;;
+              esac
+              chain="$chain -> $code $next"
+              url="$next"
+              if [[ "$url" == "https://$CANONICAL_HOST"/* ]]; then ok=1; break; fi
+            done
+            if [ "$ok" = 1 ]; then echo "ok: $chain"; elif [ "$fail" = 0 ]; then echo "::error::$start når ikke https://$CANONICAL_HOST ($chain)"; fail=1; fi
+          done
+          exit $fail
