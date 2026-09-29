@@ -14,6 +14,15 @@ Cloudflare og varsler på e-post fra GitHub når noe feiler.
 Repoet er offentlig fordi GitHub Actions er gratis i offentlige repoer. Alt
 som sjekkes er offentlige adresser, og ingen jobber bruker hemmeligheter.
 
+## Lisens
+
+Koden er synlig, men ikke åpen kildekode. © 2026 Børresen Digital, alle
+rettigheter forbeholdt. Den kan leses og lenkes til, men ikke kopieres,
+endres eller brukes andre steder uten skriftlig tillatelse. Se
+[LICENSE](LICENSE).
+
+Sikkerhetsproblemer meldes på e-post, se [SECURITY.md](SECURITY.md).
+
 Blogginnlegget
 [«Jeg overvåker min egen side, og noe må overvåke det også»](https://www.borresendigital.no/nb/blogg/hvem-overvaaker-overvaakeren)
 forteller hvorfor og hvordan.
